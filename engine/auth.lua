@@ -46,6 +46,11 @@ return function(Crypt)
 		local strength = (#pw >= 12 and classes >= 3) and "strong" or (classes >= 2 and "ok" or "weak")
 		return true, strength, "ok"
 	end
+	-- a basic email shape check (mirrors the Worker's validEmail); real validation is the emailed code. Pure -- tested.
+	local function validEmail(e)
+		if type(e) ~= "string" or #e > 254 then return false end
+		return e:match("^[^@%s]+@[^@%s]+%.[^@%s]+$") ~= nil
+	end
 	-- launch decision: a cached, non-expired session -> run the app; else show the gate. Pure -- tested.
 	local function launchDecision(session, now)
 		if type(session) ~= "table" or not session.token or session.token == "" then return "gate" end
@@ -65,8 +70,10 @@ return function(Crypt)
 	Auth.keyCheckChar, Auth.makeKey, Auth.validKeyFormat = keyCheckChar, makeKey, validKeyFormat
 	Auth.validUsername, Auth.validPassword, Auth.launchDecision = validUsername, validPassword, launchDecision
 	Auth.serialize, Auth.parse = serialize, parse
+	Auth.validEmail = validEmail
 	Crypt._authKeyCheck, Crypt._authValidKey, Crypt._authValidUser, Crypt._authValidPass = keyCheckChar, validKeyFormat, validUsername, validPassword
 	Crypt._authLaunch, Crypt._authSerialize, Crypt._authParse, Crypt._authMakeKey = launchDecision, serialize, parse, makeKey
+	Crypt._authValidEmail = validEmail
 
 	-- ===== MOCK backend (offline demo; replaced by the real Worker via getgenv().Crypt_AuthBase) =====
 	local function mockHash(s) local n = 5381; for i = 1, #s do n = (n * 33 + s:byte(i)) % 2147483647 end; return tostring(n) end
@@ -111,11 +118,37 @@ return function(Crypt)
 			if not u then return false, { error = "session invalid" } end
 			return true, { ok = true, username = u, tier = "basic", exp = os.time() + 7 * 86400 }
 		elseif endpoint == "/forgot" then
-			return true, { ok = true }   -- uniform; a real backend emails a code
+			local q = (body.usernameOrEmail or ""):lower()
+			for _, acc in pairs(M.accounts) do
+				if acc.username:lower() == q or (acc.email and acc.email:lower() == q) then
+					acc.resetCode = tostring(math.random(100000, 999999))
+					return true, { ok = true, devCode = acc.resetCode }   -- real backend EMAILS this; offline surfaces it
+				end
+			end
+			return true, { ok = true }   -- uniform; never reveal whether the user/email exists
 		elseif endpoint == "/reset" then
-			-- mock accepts a recovery code matching any account
-			for _, acc in pairs(M.accounts) do if acc.recovery == body.resetCode then acc.hash = mockHash(body.newPassword or ""); return true, { ok = true } end end
-			return false, { error = "invalid recovery code" }
+			for _, acc in pairs(M.accounts) do
+				if acc.recovery == body.resetCode or (acc.resetCode and acc.resetCode == body.resetCode) then
+					acc.hash = mockHash(body.newPassword or ""); acc.resetCode = nil; return true, { ok = true }
+				end
+			end
+			return false, { error = "invalid or expired code" }
+		elseif endpoint == "/recover-username" then
+			local email = (body.email or ""):lower(); local names = {}
+			for _, acc in pairs(M.accounts) do if acc.email and acc.email:lower() == email then names[#names + 1] = acc.username end end
+			return true, { ok = true, devUsernames = (#names > 0 and names or nil) }   -- real backend EMAILS these
+		elseif endpoint == "/link-email" then
+			local u = M.sessions[body.session]; if not u then return false, { error = "session invalid -- sign in again" } end
+			if not validEmail(body.email) then return false, { error = "enter a valid email" } end
+			local acc = M.accounts[u]; acc.pendingEmail = body.email; acc.emailCode = tostring(math.random(100000, 999999))
+			return true, { ok = true, devCode = acc.emailCode }   -- real backend EMAILS this
+		elseif endpoint == "/verify-email" then
+			local u = M.sessions[body.session]; if not u then return false, { error = "session invalid -- sign in again" } end
+			local acc = M.accounts[u]
+			if not (acc.pendingEmail and acc.emailCode) then return false, { error = "nothing to verify -- request a code first" } end
+			if tostring(body.code) ~= acc.emailCode then return false, { error = "wrong code" } end
+			acc.email = acc.pendingEmail; acc.emailVerified = true; acc.pendingEmail = nil; acc.emailCode = nil
+			return true, { ok = true, email = acc.email }
 		end
 		return false, { error = "unknown endpoint" }
 	end
@@ -176,6 +209,15 @@ return function(Crypt)
 	end
 	function Auth.forgot(userOrEmail) return Auth.request("/forgot", { usernameOrEmail = userOrEmail }) end
 	function Auth.reset(code, newPassword) return Auth.request("/reset", { resetCode = code, newPassword = newPassword }) end
+	function Auth.recoverUsername(email) return Auth.request("/recover-username", { email = email }) end
+	function Auth.linkEmail(email)
+		if not (Auth.session and Auth.session.token) then return false, { error = "sign in first" } end
+		return Auth.request("/link-email", { session = Auth.session.token, email = email })
+	end
+	function Auth.verifyEmail(code)
+		if not (Auth.session and Auth.session.token) then return false, { error = "sign in first" } end
+		return Auth.request("/verify-email", { session = Auth.session.token, code = code })
+	end
 
 	Crypt.Auth = Auth
 end

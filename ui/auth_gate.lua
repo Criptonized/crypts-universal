@@ -35,7 +35,7 @@ return function(Crypt)
 		local tabs = Instance.new("Frame"); tabs.BackgroundTransparency = 1; tabs.Position = UDim2.fromOffset(20, 70); tabs.Size = UDim2.new(1, -40, 0, 30); tabs.Parent = card
 		local tl = Instance.new("UIListLayout"); tl.FillDirection = Enum.FillDirection.Horizontal; tl.Padding = UDim.new(0, 6); tl.Parent = tabs
 
-		local content = Instance.new("Frame"); content.BackgroundTransparency = 1; content.Position = UDim2.fromOffset(20, 110); content.Size = UDim2.new(1, -40, 1, -160); content.Parent = card
+		local content = Instance.new("ScrollingFrame"); content.BackgroundTransparency = 1; content.BorderSizePixel = 0; content.ScrollBarThickness = 3; content.ScrollBarImageColor3 = ACCENT; content.AutomaticCanvasSize = Enum.AutomaticSize.Y; content.CanvasSize = UDim2.new(); content.Position = UDim2.fromOffset(20, 110); content.Size = UDim2.new(1, -40, 1, -160); content.Parent = card
 
 		local status = Instance.new("TextLabel"); status.BackgroundTransparency = 1; status.AnchorPoint = Vector2.new(0, 1); status.Position = UDim2.new(0, 20, 1, -14); status.Size = UDim2.new(1, -40, 0, 34); status.Font = FONT; status.TextSize = 12; status.TextColor3 = DIM; status.TextWrapped = true; status.TextYAlignment = Enum.TextYAlignment.Bottom; status.TextXAlignment = Enum.TextXAlignment.Left; status.Text = ""; status.Parent = card
 		local function setStatus(msg, good) status.Text = msg or ""; status.TextColor3 = (good == true and GOOD) or (good == false and BAD) or DIM end
@@ -85,15 +85,37 @@ return function(Crypt)
 			end
 		end
 		renderers.recover = function()
-			clearContent()
-			note("Reset with the one-time recovery code you saved at signup:")
-			local c = field("Recovery code"); local np = field("New password")
-			button("Reset password", function()
-				local pok = Crypt.Auth.validPassword(np.Text); if not pok then setStatus("New password must be at least 8 characters.", false); return end
-				local ok, d = Crypt.Auth.reset(c.Text, np.Text)
-				if ok then setStatus("Password reset -- now log in.", true); task.wait(0.6); renderers.login() else setStatus((d and d.error) or "Reset failed.", false) end
-			end)
-			button("Forgot password (email me a code)", function() Crypt.Auth.forgot(""); setStatus("If an email is on file, a reset code was sent.", true) end)
+			local showReset, showForgotUser
+			showReset = function()
+				clearContent()
+				note("Reset your password. Email yourself a code, or use the one-time recovery code from signup.")
+				local idf = field("Username or email")
+				button("Email me a reset code", function()
+					local ok, d = Crypt.Auth.forgot(idf.Text)
+					local extra = (ok and d and d.devCode) and ("  (offline code: " .. tostring(d.devCode) .. ")") or ""
+					setStatus(ok and ("If that account exists, a reset code was emailed." .. extra) or ((d and d.error) or "Could not send."), ok == true)
+				end)
+				local cf = field("Reset code or recovery code"); local np = field("New password")
+				button("Reset password", function()
+					if not Crypt.Auth.validPassword(np.Text) then setStatus("New password must be at least 8 characters.", false); return end
+					local ok, d = Crypt.Auth.reset(cf.Text, np.Text)
+					if ok then setStatus("Password reset -- now log in.", true); task.wait(0.6); renderers.login() else setStatus((d and d.error) or "Reset failed.", false) end
+				end)
+				button("Forgot your username instead?", function() showForgotUser() end)
+			end
+			showForgotUser = function()
+				clearContent()
+				note("Forgot your username? Enter your email and we'll send it.")
+				local ef = field("Email")
+				button("Email me my username", function()
+					if not Crypt.Auth.validEmail(ef.Text) then setStatus("Enter a valid email.", false); return end
+					local ok, d = Crypt.Auth.recoverUsername(ef.Text)
+					local extra = (ok and d and d.devUsernames) and ("  (offline: " .. table.concat(d.devUsernames, ", ") .. ")") or ""
+					setStatus(ok and ("If that email is on file, your username was sent." .. extra) or ((d and d.error) or "Could not send."), ok == true)
+				end)
+				button("Back to password reset", function() showReset() end)
+			end
+			showReset()
 		end
 
 		local tabBtns = {}
