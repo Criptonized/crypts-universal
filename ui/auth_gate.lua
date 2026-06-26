@@ -24,6 +24,12 @@ return function(Crypt)
 		sg.Name = "CryptAuthGate"; sg.ResetOnSpawn = false; sg.IgnoreGuiInset = true; sg.DisplayOrder = 9999; sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 		pcall(function() sg.Parent = (gethui and gethui()) or lp:WaitForChild("PlayerGui") end)
 
+		-- while this modal is open, disable the hotbar so number keys you type don't equip tools (restored on exit).
+		local SG = game:GetService("StarterGui")
+		local prevBackpack = true
+		pcall(function() prevBackpack = SG:GetCoreGuiEnabled(Enum.CoreGuiType.Backpack) end)
+		pcall(function() SG:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, false) end)
+
 		local dim = Instance.new("Frame"); dim.Size = UDim2.fromScale(1, 1); dim.BackgroundColor3 = Color3.new(0, 0, 0); dim.BackgroundTransparency = 0.35; dim.BorderSizePixel = 0; dim.Parent = sg
 
 		local card = Instance.new("Frame"); card.Size = UDim2.fromOffset(360, 430); card.Position = UDim2.fromScale(0.5, 0.5); card.AnchorPoint = Vector2.new(0.5, 0.5); card.BackgroundColor3 = CARD; card.BorderSizePixel = 0; card.Parent = sg; corner(card, 12)
@@ -48,7 +54,18 @@ return function(Crypt)
 		end
 		local function note(text) local l = Instance.new("TextLabel"); l.BackgroundTransparency = 1; l.Size = UDim2.new(1, 0, 0, 30); l.Font = FONT; l.TextSize = 12; l.TextColor3 = DIM; l.TextWrapped = true; l.TextXAlignment = Enum.TextXAlignment.Left; l.Text = text; l.Parent = content; return l end
 		local function button(text, cb) local b = Instance.new("TextButton"); b.Size = UDim2.new(1, 0, 0, 36); b.BackgroundColor3 = ACCENT; b.BorderSizePixel = 0; b.Font = Enum.Font.GothamBold; b.TextSize = 14; b.TextColor3 = Color3.new(1, 1, 1); b.AutoButtonColor = true; b.Text = text; b.Parent = content; corner(b, 6); b.MouseButton1Click:Connect(function() pcall(cb) end); return b end
-		local function passGate() pcall(function() sg:Destroy() end); pcall(onPass) end
+		local function passGate() pcall(function() SG:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, prevBackpack) end); pcall(function() sg:Destroy() end); pcall(onPass) end
+		-- after registration, force a deliberate "save your recovery code" step (it's shown only once).
+		local function showRecoveryCode(code)
+			clearContent()
+			note("SAVE THIS RECOVERY CODE -- shown only once. It resets your password if you forget it (no email needed).")
+			local box = field(""); box.Text = tostring(code or ""); box.TextEditable = false; box.TextSize = 16; box.Font = Enum.Font.GothamBold; box.TextXAlignment = Enum.TextXAlignment.Center
+			button("Copy code", function()
+				if type(setclipboard) == "function" then pcall(function() setclipboard(tostring(code or "")) end); setStatus("Copied to clipboard.", true)
+				else setStatus("Select the code above and copy it manually.", nil) end
+			end)
+			button("I've saved it -- continue", function() passGate() end)
+		end
 
 		local renderers = {}
 		renderers.login = function()
@@ -76,7 +93,7 @@ return function(Crypt)
 					local pok = Crypt.Auth.validPassword(p.Text); if not pok then setStatus("Password must be at least 8 characters.", false); return end
 					setStatus("Creating account...")
 					local rok, d = Crypt.Auth.register(at, u.Text, p.Text, (e.Text ~= "" and e.Text) or nil)
-					if rok then setStatus("Account created! Recovery code: " .. tostring(d.recoveryCode) .. " -- SAVE IT.", true); task.wait(1.4); passGate() else setStatus((d and d.error) or "Could not create account.", false) end
+					if rok then showRecoveryCode(d.recoveryCode) else setStatus((d and d.error) or "Could not create account.", false) end
 				end)
 				setStatus("Key accepted -- create your account.", true)
 			end)
