@@ -9,10 +9,10 @@
 -- (private) script from R2 storage ONLY for a valid session. The real script is not served raw. Revoke
 -- a user by banning the account / bumping its token version -> their next /script call 403s instantly.
 --
--- DEV bypass (the project owner, during development): fetch main.lua directly with a base set, e.g.
---   getgenv().Crypt_Base = "https://raw.githubusercontent.com/Criptonized/crypts-universal/main/"
---   loadstring(game:HttpGet(getgenv().Crypt_Base .. "main.lua"))()
--- (That path stays open only while the source modules remain in a readable repo -- see HANDOFF_DISTRIBUTION.md.)
+-- DEV (project owner): the source repo is PRIVATE, so there is no public main.lua to fetch. To run a dev build
+-- in-game either (a) sign in through this loader (works once the Worker's /script is deployed), or (b) run a local
+-- build -- drop standalone/crypts-universal.min.lua into your executor's workspace and
+-- loadstring(readfile("crypts-universal.min.lua"))().
 -- ============================================================================
 local AUTH_BASE = "https://crypt-auth.themanwithslavbrains.workers.dev"             -- the live auth + delivery Worker
 local PUB = "https://raw.githubusercontent.com/Criptonized/crypts-universal/main/"  -- public sign-in modules ONLY
